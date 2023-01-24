@@ -13,7 +13,7 @@ spec:
         app: springboot-app
     spec:
       containers:
-      - name: my-springboot-app
+      - name: springboot-app
         image: myacrrepo3210.azurecr.io/acrrepo3210:latest
         imagePullPolicy: Always
         ports:
