@@ -1,0 +1,102 @@
+pipeline {
+    agent any
+    tools {
+        maven 'Maven3' 
+    }
+  
+    environment {
+        registryName='myacrrepo3210'
+        registryCredential='ACR'
+        registryURL='myacrrepo3210.azurecr.io'
+        dockerImage=''
+    }
+
+    stages {
+        stage('Git Checkout') {
+            steps {
+                echo "Git Checkout Started"
+                git branch: 'main', url: 'https://github.com/gsree/springboot-app.git'
+                echo "Git Checkout Completed"
+            }
+        }
+        stage('Unit Test') {
+            steps {
+                echo "Unit Test Started"
+                sh 'mvn test'
+                echo "Unit Test Completed"
+            }
+        }
+        stage('Integration Test') {
+            steps {
+                echo "Integration Test Started"
+                sh 'mvn verify -DskipUnitTests'
+                echo "Integration Test Completed"
+            }
+        }
+        stage('Maven Build') {
+            steps {
+                echo "Build Started"
+                sh 'mvn clean install'
+                echo "Build Completed"
+            }
+        }
+        stage('Static Code Analysis') {
+            steps{
+                script {
+                echo "Static Code Analysis Started"   
+                withSonarQubeEnv(credentialsId: 'sonar') {
+                sh 'mvn clean package sonar:sonar'
+                echo "Static Code Analysis Completed"
+                }
+                }
+            }
+        }
+        stage('Quality Gate Status') {
+            steps {
+                script {
+                    waitForQualityGate abortPipeline: false ,credentialsId: 'sonar'
+                }
+            }
+        }
+        stage('Docker Image Build') {
+            steps {
+                script {
+                    dockerImage = docker.build registryName
+                }
+            }
+        }
+            stage('Image Push to ACR') {
+                steps {
+                   script {
+                       docker.withRegistry( "http://${registryUrl}", registryCredential ) {
+                       dockerImage.push()
+                       }
+                   } 
+                }
+            }
+            stage('Deploy image to AKS K8S Cluster') {
+                steps {
+                    withKubeConfig(caCertificate: '', clusterName: '', contextName: '', credentialsId: 'K8S', namespace: '', restrictKubeConfigAccess: false, serverUrl: '') {
+                    sh 'kubectl apply -f jenkins-aks-deploy-from-acr.yaml'
+                     }
+                }
+            }
+            
+        }
+}
+
+/* While creating VM or instance in cloud enable Custom TCP- 8080 port or All TCP (From Anywhere) so that we can access Jenkins portal once Jenkins is installed.
+Install Docker on the same server where we installed Jenkins because we need to execute docker commands for running docker file nd also install
+kubectl 
+Create AKS Cluster nd ACR in azure portal under a resource group. After creation 1st connect to the cluster using default 2 commands provided by Azure, then 
+run below command to make AKS has pull access from ACR:
+az aks update -n AKScluster -g myResourceGroup --attach-acr myacrrepo3210
+                   |               |                            |
+				 AKS cluster name  resource grp name           ACR repository name
+
+Connect K8S AKS cluster with Jenkins:
+Command to view the kube file: cat ~/.kube/config
+Copy the content nd save it in local machine
+Go to Jenkins-> Manage Jenkins-> Manage credentials ->System -> Global credentials (unrestricted) -> Add credentials -> Select Secret File
+
+Add Maven under Manage Jenkins -> Global Tool Configuration so that no need to install maven separately we can build java code using maven command. */
